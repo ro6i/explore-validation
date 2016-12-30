@@ -1,0 +1,6 @@
+.idea/
+target/
+project/project/*
+project/report/*
+project/project/report/*
+project/target/*
