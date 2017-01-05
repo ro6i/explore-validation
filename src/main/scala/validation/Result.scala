@@ -1,15 +1,10 @@
 package validation
 
 
-abstract class Result[+A](val isValid: Boolean, val message: Option[Message], val value: Option[A])
+abstract class Result[+A](val isValid: Boolean)
 
-case class Valid[+A](override val value: Option[A]) extends Result[A](true, None, value)
+case class Valid[A](value: A) extends Result[A](true)
+case class JustValid[A]() extends Result[A](true)
 
-case class NotValid(message1: Message) extends Result[Nothing](false, Some(message1), None)
-
-object Result {
-
-  def apply[A](value: Option[A]): Result[A] = Valid(value)
-
-  def apply[A](message: Message): Result[A] = NotValid(message)
-}
+case class NotValid(message: Message) extends Result[Nothing](false)
+case class ValueNotValid[+A](message: Message, value: A) extends Result[A](false)

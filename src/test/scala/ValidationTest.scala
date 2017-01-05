@@ -1,9 +1,11 @@
+import java.time.LocalDate
+
 import org.scalatest._
 import validation._
 import validation.Validator._
 import validation.runner._
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 
 
@@ -16,7 +18,7 @@ class ValidationTest extends FlatSpec {
   "Single entry validation" should "succeed without any message" in {
     val result =
       for {
-        a <- isInt("-1a23", Error("string must represent an integer."))
+        a <- is[Int]("-1a23", Error("string must represent an integer."))
       } yield a
 
     assert(result match {
@@ -29,7 +31,7 @@ class ValidationTest extends FlatSpec {
   it should "fail with a message" in {
     val result =
       for {
-        a <- isInt("-123", Error("string must represent an integer."))
+        a <- is[Int]("-123", Error("string must represent an integer."))
       } yield a
 
     assert(result match {
@@ -42,7 +44,7 @@ class ValidationTest extends FlatSpec {
   it should "fail succeed with a warning" in {
     val result =
       for {
-        a <- isInt("-1b23", Warning("string must represent an integer."))
+        a <- is[Int]("-1b23", Warning("string must represent an integer."))
       } yield a
 
     assert(result match {
@@ -56,10 +58,10 @@ class ValidationTest extends FlatSpec {
   "Multiple entry validation" should "fail with an error and a warning" in {
     val result =
       for {
-        a <- isInt("-123", Error("string must represent an integer."))
-        b <- isLong("34", Error("string must represent a long integer."))
-        d <- isLong("678", Error("string must represent a long integer."))
-        _ <- custom(() => d.get < 45, Warning("amount is too high."))
+        a <- is[Int]("-123", Error("string must represent an integer."))
+        b <- is[Long]("34", Error("string must represent a long integer."))
+        d <- is[Long]("678", Error("string must represent a long integer."))
+        _ <- isTrue(() => d.get < 45, Warning("amount is too high."))
 
         c <- isPositive(a.get, Error("member id must be positive."))
 
@@ -76,9 +78,9 @@ class ValidationTest extends FlatSpec {
   "Multiple entry validation" should "succeed with a warning" in {
     val result =
       for {
-        a <- isInt("-123", Error("string must represent an integer."))
-        b <- isLong("34", Error("string must represent a long integer."))
-        _ <- custom(() => b.get < 34, Warning("id is greater than the threshold."))
+        a <- is[Int]("-123", Error("string must represent an integer."))
+        b <- is[Long]("34", Error("string must represent a long integer."))
+        _ <- isTrue(() => b.get < 34, Warning("id is greater than the threshold."))
         _ <- isPositive(a.get, Warning("member id must be positive."))
 
       } yield ValidationState(a, b, None, None)
@@ -95,8 +97,8 @@ class ValidationTest extends FlatSpec {
   "DSL validation" should "succeed with a warning" in {
 
     val result = Check that
-      isInt("-123", Error("string must represent an integer.")) andThen
-      isLong("34a", Warning("string must represent an integer."))
+      is[Int]("-123", Error("string must represent an integer.")) andThen
+      is[Long]("34a", Warning("string must represent an integer."))
 
     assert(result match {
       case Validated(_, m) =>
@@ -108,7 +110,7 @@ class ValidationTest extends FlatSpec {
 
   "Simple for comprehension with condition" should "succeed with a warning" in {
     val result =
-      for (a <- isInt("-123", Error("string must represent an integer.")) if a.get > 5) yield a
+      for (a <- is[Int]("-123", Error("string must represent an integer.")) if a.get > 5) yield a
 
     assert(result match {
       case Invalidated(m) =>
@@ -122,15 +124,18 @@ class ValidationTest extends FlatSpec {
 
     val result =
       for {
-        a <- isInt("-123", Error("string must represent an integer."))
-        b <- customAsync[Int]({ a.get + 124 }, 10.millis, _ == 1, Error("integer must equal to 1."))
+        a <- is[Int]("1", Error("string must represent an integer."))
+        b <- bypass(Future{ Thread.sleep(1); 2 })
+        c <- bypass(Future{ Thread.sleep(1); 4 })
+        d <- await(b, 10.millis, Error("First future failed."))
+        e <- await(c, 10.millis, Error("Second future failed."))
+        _ <- isTrue(() => d == 2 && e == 4, Error("'d' and 'e' must be equal to 2 and respectively."))
 
-      } yield (a, b)
+      } yield d - a.get
 
     assert(result match {
       case Validated(s, m) =>
-        assert(s._1.get == -123)
-        assert(s._2.get == 1)
+        assert(s == 1)
         assert(m == Nil)
         true
       case _ => false
@@ -141,14 +146,15 @@ class ValidationTest extends FlatSpec {
 
     val result =
       for {
-        a <- isInt("-123", Error("string must represent an integer."))
-        b <- customAsync[Int]({ Thread.sleep(1000); a.get + 124 }, 10.millis, _ == 1, Error("integer must be equal to 1."))
+        a <- is[Int]("1", Error("string must represent an integer."))
+        b <- bypass(Future{ Thread.sleep(500); 2 })
+        c <- await(b, 10.millis, Error("Future failed."))
 
-      } yield (a, b)
+      } yield (a, c)
 
     assert(result match {
       case Invalidated(m) =>
-        assert(m.size == 1)
+        assert(m == Error("Future failed.") :: Nil)
         true
       case _ => false
     })
